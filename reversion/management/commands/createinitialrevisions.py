@@ -1,6 +1,6 @@
 from __future__ import unicode_literals
 from django.db import reset_queries, transaction, router
-from reversion.models import Revision, Version, _safe_subquery
+from reversion.models import Revision, Version
 from reversion.management.commands import BaseRevisionCommand
 from reversion.revisions import create_revision, set_comment, add_to_revision
 
@@ -25,11 +25,11 @@ class Command(BaseRevisionCommand):
         )
 
     def handle(self, *app_labels, **options):
-        verbosity = options["verbosity"]
-        using = options["using"]
-        model_db = options["model_db"]
-        comment = options["comment"]
-        batch_size = options["batch_size"]
+        verbosity = getattr(options, "verbosity", 0)
+        using = getattr(options, "using", None)
+        model_db = getattr(options, "model_db", None)
+        comment = getattr(options, "comment", "Initial version.")
+        batch_size = getattr(options, "batch_size", 500)
         # Create revisions.
         using = using or router.db_for_write(Revision)
         with transaction.atomic(using=using):
@@ -40,16 +40,9 @@ class Command(BaseRevisionCommand):
                         name=model._meta.verbose_name,
                     ))
                 created_count = 0
-                live_objs = _safe_subquery(
-                    "exclude",
-                    model._default_manager.using(model_db),
-                    model._meta.pk.name,
-                    Version.objects.using(using).get_for_model(
-                        model,
-                        model_db=model_db,
-                    ),
-                    "object_id",
-                )
+                # _safe_subquery does not work in Django 1.7
+                # So we replace it with this query for now
+                live_objs = model._default_manager.db_manager(model_db).all()
                 # Save all the versions.
                 ids = list(live_objs.values_list("pk", flat=True).order_by())
                 total = len(ids)

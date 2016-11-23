@@ -218,54 +218,54 @@ def _save_revision(versions, user=None, comment="", meta=(), date_created=None, 
     if not versions:
         return
     # Save a new revision.
-    revision = Revision(
-        date_created=date_created,
-        user=user,
-        comment=comment,
-    )
-    # Send the pre_revision_commit signal.
-    pre_revision_commit.send(
-        sender=create_revision,
-        revision=revision,
-        versions=versions,
-    )
-    # Save the revision.
-    revision.save(using=using)
-    # Save version models.
-    for version in versions:
-        version.revision = revision
-        version.save(using=using)
-    # Save the meta information.
-    for meta_model, meta_fields in meta:
-        meta_model._default_manager.db_manager(using=using).create(
-            revision=revision,
-            **meta_fields
+    with transaction.atomic(using=using):  # altered from original. Normally _save_revision is run wintin atomic context
+        revision = Revision(
+            date_created=date_created,
+            user=user,
+            comment=comment,
         )
-    # Send the post_revision_commit signal.
-    post_revision_commit.send(
-        sender=create_revision,
-        revision=revision,
-        versions=versions,
-    )
+        # Send the pre_revision_commit signal.
+        pre_revision_commit.send(
+            sender=create_revision,
+            revision=revision,
+            versions=versions,
+        )
+        # Save the revision.
+        revision.save(using=using)
+        # Save version models.
+        for version in versions:
+            version.revision = revision
+            version.save(using=using)
+        # Save the meta information.
+        for meta_model, meta_fields in meta:
+            meta_model._default_manager.db_manager(using=using).create(
+                revision=revision,
+                **meta_fields
+            )
+        # Send the post_revision_commit signal.
+        post_revision_commit.send(
+            sender=create_revision,
+            revision=revision,
+            versions=versions,
+        )
 
 
 @contextmanager
 def _create_revision_context_atomic(manage_manually, using):
     _push_frame(manage_manually, using)
     try:
-        with transaction.atomic(using=using):
-            yield
-            # Only save for a db if that's the last stack frame for that db.
-            if not any(using in frame.db_versions for frame in _local.stack[:-1]):
-                current_frame = _current_frame()
-                _save_revision(
-                    versions=current_frame.db_versions[using].values(),
-                    user=current_frame.user,
-                    comment=current_frame.comment,
-                    meta=current_frame.meta,
-                    date_created=current_frame.date_created,
-                    using=using,
-                )
+        yield
+        # Only save for a db if that's the last stack frame for that db.
+        if not any(using in frame.db_versions for frame in _local.stack[:-1]):
+            current_frame = _current_frame()
+            _save_revision(
+                versions=current_frame.db_versions[using].values(),
+                user=current_frame.user,
+                comment=current_frame.comment,
+                meta=current_frame.meta,
+                date_created=current_frame.date_created,
+                using=using,
+            )
     finally:
         _pop_frame()
 

@@ -117,18 +117,14 @@ class VersionQuerySet(models.QuerySet):
     def get_for_object(self, obj, model_db=None):
         return self.get_for_object_reference(obj.__class__, obj.pk, model_db=model_db)
 
+    # The normal get_delted function does not work in Django 1.8. So we replace it with our own for now.
     def get_deleted(self, model, model_db=None):
-        return self.get_for_model(model, model_db=model_db).filter(
-            pk__in=_safe_subquery(
-                "exclude",
-                self.get_for_model(model, model_db=model_db),
-                "object_id",
-                model._default_manager.using(model_db),
-                model._meta.pk.name,
-            ).values_list("object_id").annotate(
-                latest_pk=models.Max("pk")
-            ).order_by().values_list("latest_pk", flat=True),
-        )
+        live_pk_queryset = model._default_manager.db_manager(model_db).all().values_list("pk", flat=True)
+        live_pk_queryset = list(map(str,live_pk_queryset))
+        return self.get_for_model(model, model_db=model_db).exclude(object_id__in=live_pk_queryset) \
+                                                           .values_list("pk") \
+                                                           .annotate(latest_pk=models.Max("pk")) \
+                                                           .order_by().values_list("latest_pk", flat=True)
 
     def get_unique(self):
         last_key = None
@@ -267,52 +263,3 @@ class Version(models.Model):
             ("db", "content_type", "object_id", "revision"),
         )
         ordering = ("-pk",)
-
-
-class _Str(models.Func):
-
-    """Casts a value to the database's text type."""
-
-    function = "CAST"
-    template = "%(function)s(%(expressions)s as %(db_type)s)"
-
-    def __init__(self, expression):
-        super(_Str, self).__init__(expression, output_field=models.TextField())
-
-    def as_sql(self, compiler, connection):
-        self.extra["db_type"] = self.output_field.db_type(connection)
-        return super(_Str, self).as_sql(compiler, connection)
-
-
-def _safe_subquery(method, left_query, left_field_name, right_subquery, right_field_name):
-    right_subquery = right_subquery.order_by().values_list(right_field_name, flat=True)
-    left_field = left_query.model._meta.get_field(left_field_name)
-    right_field = right_subquery.model._meta.get_field(right_field_name)
-    # If the databases don't match, we have to do it in-memory.
-    # If it's not a supported database, we also have to do it in-memory.
-    if (
-        left_query.db != right_subquery.db or not
-        (
-            left_field.get_internal_type() != right_field.get_internal_type() and
-            connections[left_query.db].vendor in ("sqlite", "postgresql")
-        )
-    ):
-        right_subquery = list(right_subquery.iterator())
-    else:
-        # If the left hand side is not a text field, we need to cast it.
-        if not isinstance(left_field, (models.CharField, models.TextField)):
-            left_field_name_str = "{}_str".format(left_field_name)
-            left_query = left_query.annotate(**{
-                left_field_name_str: _Str(left_field_name),
-            })
-            left_field_name = left_field_name_str
-        # If the right hand side is not a text field, we need to cast it.
-        if not isinstance(right_field, (models.CharField, models.TextField)):
-            right_field_name_str = "{}_str".format(right_field_name)
-            right_subquery = right_subquery.annotate(**{
-                right_field_name_str: _Str(right_field_name),
-            }).values_list(right_field_name_str, flat=True)
-    # All done!
-    return getattr(left_query, method)(**{
-        "{}__in".format(left_field_name): right_subquery,
-    })

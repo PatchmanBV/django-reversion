@@ -30,7 +30,9 @@ class BaseRevisionCommand(BaseCommand):
         # Load admin classes.
         admin.autodiscover()
         # Get options.
-        app_labels = options["app_label"]
+        using = getattr(options, "using", None)
+        model_db = getattr(options, "model_db", None)
+        app_labels = getattr(options, "app_label", [])
         # Parse model classes.
         if len(app_labels) == 0:
             selected_models = apps.get_models()

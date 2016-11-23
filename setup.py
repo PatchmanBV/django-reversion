@@ -15,20 +15,20 @@ except ImportError:
     cmdclass = {}
 
 setup(
-    name="django-reversion",
+    name="django-reversion-patchman",
     version='.'.join(str(x) for x in __version__),
     license="BSD",
-    description="An extension to the Django web framework that provides version control for model instances.",
-    author="Dave Hall",
-    author_email="dave@etianen.com",
-    url="http://github.com/etianen/django-reversion",
+    description="An extension to the Django web framework that provides version control for model instances. Patchman version.",
+    author="Patchman B.V.",
+    author_email="info@patchman.co",
+    url="https://github.com/PatchmanBV/django-reversion",
     zip_safe=False,
     packages=find_packages(),
     package_data={
         "reversion": ["locale/*/LC_MESSAGES/django.*", "templates/reversion/*.html"]},
     cmdclass=cmdclass,
     install_requires=[
-        "django>=1.8",
+        "django>=1.7",
     ],
     classifiers=[
         "Development Status :: 5 - Production/Stable",
