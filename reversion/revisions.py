@@ -250,7 +250,7 @@ def _save_revision(versions, user=None, comment="", meta=(), date_created=None, 
 
 
 @contextmanager
-def _create_revision_context(manage_manually, using):
+def _create_revision_context_atomic(manage_manually, using):
     _push_frame(manage_manually, using)
     try:
         with transaction.atomic(using=using):
@@ -269,11 +269,36 @@ def _create_revision_context(manage_manually, using):
     finally:
         _pop_frame()
 
+@contextmanager
+def _create_revision_context(manage_manually, using):
+    _push_frame(manage_manually, using)
+    try:
+        yield
+        # Only save for a db if that's the last stack frame for that db.
+        if not any(using in frame.db_versions for frame in _local.stack[:-1]):
+            current_frame = _current_frame()
+            _save_revision(
+                versions=current_frame.db_versions[using].values(),
+                user=current_frame.user,
+                comment=current_frame.comment,
+                meta=current_frame.meta,
+                date_created=current_frame.date_created,
+                using=using,
+            )
+    finally:
+        _pop_frame()
 
-def create_revision(manage_manually=False, using=None):
+
+def create_revision(manage_manually=False, using=None, atomic=True):
     from reversion.models import Revision
+    if atomic is None:
+        atomic = getattr(settings, 'REVERSION-ATOMIC', True)
+
     using = using or router.db_for_write(Revision)
-    return _ContextWrapper(_create_revision_context, (manage_manually, using))
+    if atomic:
+        return _ContextWrapper(_create_revision_context_atomic, (manage_manually, using))
+    else:
+        return _ContextWrapper(_create_revision_context, (manage_manually, using))
 
 
 class _ContextWrapper(object):

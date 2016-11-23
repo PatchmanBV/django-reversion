@@ -1,4 +1,5 @@
 import sys
+from django.conf import settings
 from reversion.revisions import create_revision as create_revision_base
 from reversion.views import _request_creates_revision, _set_user_from_request, create_revision
 
@@ -19,7 +20,9 @@ class RevisionMiddleware(object):
 
     def process_request(self, request):
         if _request_creates_revision(request):
-            context = create_revision_base(manage_manually=self.manage_manually, using=self.using)
+            context = create_revision_base(manage_manually=self.manage_manually,
+                                           using=self.using,
+                                           atomic=getattr(settings, 'REVERSION_ATOMIC', True))
             context.__enter__()
             if not hasattr(request, "_revision_middleware"):
                 setattr(request, "_revision_middleware", {})
